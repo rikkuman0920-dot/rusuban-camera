@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#11161c">
+<title>るすばんカメラ</title>
+<style>
+:root{
+  --bg:#11161c; --panel:#1b222b; --line:#2c3642; --fg:#e8edf2; --muted:#93a1b0;
+  --accent:#4cc38a; --warn:#e5a33b; --bad:#e5534b;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);
+  font:15px/1.6 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;
+  padding:max(12px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+main{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font-size:22px;margin:4px 0 0}
+h2{font-size:17px;margin:0}
+p{margin:0}
+.muted{color:var(--muted);font-size:13px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+button{font:inherit;border:0;border-radius:10px;padding:12px 16px;background:var(--line);color:var(--fg);cursor:pointer}
+button.primary{background:var(--accent);color:#08140e;font-weight:700}
+button.danger{background:var(--bad);color:#fff}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>*{flex:1 1 auto}
+input{font:inherit;width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+label{font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.id{font:700 22px/1.3 ui-monospace,Menlo,monospace;letter-spacing:.08em;word-break:break-all}
+video{width:100%;max-width:100%;background:#000;border-radius:10px;min-height:200px;max-height:70vh;object-fit:contain}
+.status{display:flex;align-items:center;gap:8px;font-size:14px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex:none}
+.dot.ok{background:var(--accent)} .dot.wait{background:var(--warn)} .dot.ng{background:var(--bad)}
+#blackout{position:fixed;inset:0;background:#000;z-index:50;display:flex;align-items:flex-end;justify-content:center;padding-bottom:40px;color:#333;font-size:12px}
+.time{font:600 13px ui-monospace,Menlo,monospace;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+
+<!-- 最初の画面 -->
+<section id="home">
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <div>
+      <h1>るすばんカメラ</h1>
+      <p class="muted">余ったスマホを監視カメラにします。違うWi-Fiやモバイル回線からでも見られます。</p>
+    </div>
+    <div class="card">
+      <h2>このスマホをカメラにする</h2>
+      <p class="muted">置きっぱなしにする方のスマホ（余ったAndroid）で選びます。</p>
+      <button class="primary" id="goCamera">カメラとして使う</button>
+    </div>
+    <div class="card">
+      <h2>カメラの映像を見る</h2>
+      <p class="muted">普段使っているスマホで選びます。</p>
+      <button class="primary" id="goViewer">映像を見る</button>
+    </div>
+  </div>
+</section>
+
+<!-- カメラ側 -->
+<section id="camera" hidden>
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <h1>カメラ</h1>
+    <div class="status"><span class="dot" id="camDot"></span><span id="camStatus">準備中…</span></div>
+    <video id="camPreview" autoplay playsinline muted></video>
+    <div class="card">
+      <p class="muted">見る側のスマホで、このカメラIDと暗証番号を入力してください。</p>
+      <div class="id" id="camId">------</div>
+      <label>暗証番号（6桁以上）
+        <input id="camPin" inputmode="numeric" autocomplete="off">
+      </label>
+      <p class="muted">見ている人：<span id="viewerCount">0</span>人</p>
+    </div>
+    <div class="row">
+      <button id="switchCam">カメラ切替</button>
+      <button id="toggleMic">マイク：オフ</button>
+    </div>
+    <div class="row">
+      <button id="blackoutBtn">画面を暗くする（電池節約）</button>
+    </div>
+    <div class="row">
+      <button id="newId">IDを作り直す</button>
+      <button class="danger" id="stopCam">終了</button>
+    </div>
+    <p class="muted">充電器につないだまま、この画面を開いておいてください。画面を閉じたり、別のアプリに切り替えると配信が止まります。</p>
+  </div>
+</section>
+
+<!-- 見る側 -->
+<section id="viewer" hidden>
+  <div style="display:flex;flex-direction:column;gap:16px">
+    <h1>映像を見る</h1>
+    <div class="card" id="connectForm">
+      <label>カメラID
+        <input id="vId" autocomplete="off" autocapitalize="characters" placeholder="例：K7M2QX9A">
+      </label>
+      <label>暗証番号
+        <input id="vPin" inputmode="numeric" autocomplete="off">
+      </label>
+      <button class="primary" id="connectBtn">接続する</button>
+    </div>
+    <div class="status"><span class="dot" id="vDot"></span><span id="vStatus">未接続</span></div>
+    <video id="remote" autoplay playsinline muted controls></video>
+    <div class="row" style="align-items:center">
+      <span class="time" id="clock"></span>
+    </div>
+    <div class="row">
+      <button id="unmute">音を出す</button>
+      <button id="snap">静止画を保存</button>
+    </div>
+    <div class="row">
+      <button id="disconnect">切断</button>
+      <button id="backHome">最初の画面へ</button>
+    </div>
+  </div>
+</section>
+
+</main>
+<div id="blackout" hidden>画面をタップで元に戻ります</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const PREFIX = 'rusuban-cam-';
+  const store = {
+    get(k){ try { return localStorage.getItem(k); } catch { return null; } },
+    set(k,v){ try { localStorage.setItem(k,v); } catch {} },
+  };
+  const show = name => ['home','camera','viewer'].forEach(s => $(s).hidden = s !== name);
+  const setStatus = (dot, text, el, msg) => { $(dot).className = 'dot ' + el; $(text).textContent = msg; };
+
+  function randomId(n = 8) {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const a = crypto.getRandomValues(new Uint32Array(n));
+    return Array.from(a, x => chars[x % chars.length]).join('');
+  }
+  function randomPin() {
+    return String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, '0');
+  }
+
+  // ---------------- 画面スリープ防止 ----------------
+  let wakeLock = null;
+  async function keepAwake() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && !$('camera').hidden) keepAwake();
+  });
+
+  // ================= カメラ側 =================
+  let camPeer = null, localStream = null, facing = 'environment', micOn = false;
+  const calls = new Map(); // viewerPeerId -> MediaConnection
+  // 暗証番号の総当たり対策：10分間に5回まちがえると、10分間すべての接続を断る
+  let failTimes = [], lockUntil = 0;
+
+  async function getStream() {
+    if (localStream) localStream.getTracks().forEach(t => t.stop());
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: true,
+    });
+    localStream.getAudioTracks().forEach(t => t.enabled = micOn);
+    $('camPreview').srcObject = localStream;
+  }
+
+  function updateCount() { $('viewerCount').textContent = calls.size; }
+
+  async function replaceTracksForAll() {
+    for (const call of calls.values()) {
+      const pc = call.peerConnection; if (!pc) continue;
+      for (const sender of pc.getSenders()) {
+        const t = localStream.getTracks().find(x => sender.track && x.kind === sender.track.kind);
+        if (t) await sender.replaceTrack(t).catch(() => {});
+      }
+    }
+  }
+
+  function startCamPeer() {
+    let id = store.get('camId');
+    if (!id) { id = randomId(); store.set('camId', id); }
+    $('camId').textContent = id;
+    setStatus('camDot', 'camStatus', 'wait', 'サーバーに接続中…');
+
+    camPeer = new Peer(PREFIX + id);
+    camPeer.on('open', () => setStatus('camDot', 'camStatus', 'ok', '配信中（見る側からの接続を待っています）'));
+    camPeer.on('disconnected', () => {
+      setStatus('camDot', 'camStatus', 'wait', '再接続中…');
+      setTimeout(() => { if (camPeer && !camPeer.destroyed) camPeer.reconnect(); }, 3000);
+    });
+    camPeer.on('error', err => {
+      if (err.type === 'unavailable-id') {
+        setStatus('camDot', 'camStatus', 'ng', 'このIDは使用中です。別のタブで開いていないか確認するか、IDを作り直してください。');
+      } else if (err.type === 'network' || err.type === 'server-error' || err.type === 'socket-error') {
+        setStatus('camDot', 'camStatus', 'wait', '通信エラー。自動で再接続します…');
+        setTimeout(() => { if (camPeer && !camPeer.destroyed) camPeer.reconnect(); }, 5000);
+      } else {
+        setStatus('camDot', 'camStatus', 'ng', 'エラー：' + err.type);
+      }
+    });
+
+    // 見る側はまずデータ接続で暗証番号を送ってくる
+    camPeer.on('connection', conn => {
+      conn.on('open', () => {
+        const now = Date.now();
+        if (now < lockUntil) {
+          conn.send({ type: 'locked' });
+          setTimeout(() => conn.close(), 500);
+          return;
+        }
+        const pin = (conn.metadata && conn.metadata.pin) || '';
+        if (pin !== $('camPin').value) {
+          failTimes = failTimes.filter(t => now - t < 10 * 60 * 1000);
+          failTimes.push(now);
+          if (failTimes.length >= 5) {
+            lockUntil = now + 10 * 60 * 1000; failTimes = [];
+            setStatus('camDot', 'camStatus', 'ng', '暗証番号の間違いが続いたため、10分間接続を止めています（' + new Date().toLocaleTimeString('ja-JP') + '）');
+            setTimeout(() => { if (camPeer && !camPeer.destroyed) setStatus('camDot', 'camStatus', 'ok', '配信中（見る側からの接続を待っています）'); }, 10 * 60 * 1000);
+          }
+          conn.send({ type: 'denied' });
+          setTimeout(() => conn.close(), 500);
+          return;
+        }
+        conn.send({ type: 'ok' });
+        const old = calls.get(conn.peer); if (old) old.close();
+        const call = camPeer.call(conn.peer, localStream);
+        calls.set(conn.peer, call); updateCount();
+        const drop = () => { if (calls.get(conn.peer) === call) { calls.delete(conn.peer); updateCount(); } };
+        call.on('close', drop); call.on('error', drop);
+        conn.on('close', () => { call.close(); drop(); });
+      });
+    });
+  }
+
+  async function enterCamera() {
+    show('camera');
+    let pin = store.get('camPin');
+    if (!pin) { pin = randomPin(); store.set('camPin', pin); }
+    $('camPin').value = pin;
+    try {
+      await getStream();
+    } catch (e) {
+      setStatus('camDot', 'camStatus', 'ng', 'カメラを使えません。ブラウザでカメラの使用を許可してください。（' + e.name + '）');
+      return;
+    }
+    keepAwake();
+    startCamPeer();
+  }
+
+  $('camPin').addEventListener('change', () => {
+    const v = $('camPin').value.trim();
+    if (v.length < 6) { $('camPin').value = store.get('camPin') || ''; return; }
+    store.set('camPin', v);
+  });
+  $('switchCam').onclick = async () => {
+    facing = facing === 'environment' ? 'user' : 'environment';
+    try { await getStream(); await replaceTracksForAll(); } catch {}
+  };
+  $('toggleMic').onclick = () => {
+    micOn = !micOn;
+    if (localStream) localStream.getAudioTracks().forEach(t => t.enabled = micOn);
+    $('toggleMic').textContent = 'マイク：' + (micOn ? 'オン' : 'オフ');
+  };
+  $('blackoutBtn').onclick = () => { $('blackout').hidden = false; };
+  $('blackout').onclick = () => { $('blackout').hidden = true; };
+  $('newId').onclick = () => {
+    store.set('camId', randomId());
+    if (camPeer) camPeer.destroy();
+    calls.clear(); updateCount();
+    startCamPeer();
+  };
+  $('stopCam').onclick = () => {
+    if (camPeer) camPeer.destroy(); camPeer = null;
+    if (localStream) localStream.getTracks().forEach(t => t.stop()); localStream = null;
+    calls.clear(); updateCount();
+    if (wakeLock) wakeLock.release().catch(() => {});
+    show('home');
+  };
+
+  // ================= 見る側 =================
+  let vPeer = null, vConn = null, retryTimer = null, wantConnected = false;
+
+  function cleanupViewer() {
+    clearTimeout(retryTimer);
+    if (vPeer) vPeer.destroy();
+    vPeer = null; vConn = null;
+  }
+  function scheduleRetry(msg) {
+    if (!wantConnected) return;
+    setStatus('vDot', 'vStatus', 'wait', msg + ' 5秒後に再接続します…');
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(connectViewer, 5000);
+  }
+
+  function connectViewer() {
+    const id = $('vId').value.trim().toUpperCase();
+    const pin = $('vPin').value.trim();
+    if (!id || !pin) { setStatus('vDot', 'vStatus', 'ng', 'カメラIDと暗証番号を入力してください'); return; }
+    store.set('viewId', id); store.set('viewPin', pin);
+    cleanupViewer();
+    wantConnected = true;
+    setStatus('vDot', 'vStatus', 'wait', '接続中…');
+
+    vPeer = new Peer();
+    vPeer.on('open', () => {
+      vConn = vPeer.connect(PREFIX + id, { metadata: { pin }, reliable: true });
+      vConn.on('data', d => {
+        if (d && d.type === 'denied') {
+          wantConnected = false;
+          setStatus('vDot', 'vStatus', 'ng', '暗証番号が違います');
+        } else if (d && d.type === 'locked') {
+          wantConnected = false;
+          setStatus('vDot', 'vStatus', 'ng', '暗証番号の間違いが続いたため、カメラが10分間接続を止めています');
+        } else if (d && d.type === 'ok') {
+          setStatus('vDot', 'vStatus', 'wait', '映像を受信中…');
+        }
+      });
+      vConn.on('close', () => scheduleRetry('カメラとの接続が切れました。'));
+    });
+    vPeer.on('call', call => {
+      call.answer();
+      call.on('stream', s => {
+        $('remote').srcObject = s;
+        $('remote').play().catch(() => {});
+        setStatus('vDot', 'vStatus', 'ok', '接続中（ライブ）');
+      });
+      call.on('close', () => scheduleRetry('映像が止まりました。'));
+    });
+    vPeer.on('error', err => {
+      if (err.type === 'peer-unavailable') scheduleRetry('カメラが見つかりません（カメラ側の画面が開いているか確認）。');
+      else scheduleRetry('通信エラー（' + err.type + '）。');
+    });
+  }
+
+  function enterViewer() {
+    show('viewer');
+    $('vId').value = store.get('viewId') || '';
+    $('vPin').value = store.get('viewPin') || '';
+  }
+
+  $('connectBtn').onclick = connectViewer;
+  $('disconnect').onclick = () => {
+    wantConnected = false; cleanupViewer();
+    $('remote').srcObject = null;
+    setStatus('vDot', 'vStatus', '', '未接続');
+  };
+  $('backHome').onclick = () => { $('disconnect').onclick(); show('home'); };
+  $('unmute').onclick = () => {
+    const v = $('remote'); v.muted = !v.muted; v.play().catch(() => {});
+    $('unmute').textContent = v.muted ? '音を出す' : '音を消す';
+  };
+  $('snap').onclick = () => {
+    const v = $('remote'); if (!v.videoWidth) return;
+    const c = document.createElement('canvas');
+    c.width = v.videoWidth; c.height = v.videoHeight;
+    const g = c.getContext('2d'); g.drawImage(v, 0, 0);
+    const now = new Date();
+    g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(0, c.height - 36, 260, 36);
+    g.fillStyle = '#fff'; g.font = '20px monospace'; g.fillText(now.toLocaleString('ja-JP'), 8, c.height - 11);
+    c.toBlob(b => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(b);
+      a.download = 'camera-' + now.toISOString().replace(/[:.]/g, '-') + '.jpg';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    }, 'image/jpeg', 0.9);
+  };
+  setInterval(() => { $('clock').textContent = new Date().toLocaleString('ja-JP'); }, 1000);
+
+  $('goCamera').onclick = enterCamera;
+  $('goViewer').onclick = enterViewer;
+
+  if (typeof Peer === 'undefined') {
+    document.querySelector('#home .muted').textContent = '通信ライブラリを読み込めませんでした。インターネット接続を確認して再読み込みしてください。';
+  }
+})();
+</script>
+</body>
+</html>
